@@ -16,11 +16,6 @@ typedef struct
     uint32_t lsize;    // Logical Queue Size
 } cqueue_t;
 
-void
-print_cq (
-    cqueue_t * const ins
-);
-
 int
 init_cq (
     cqueue_t * const ins,
@@ -29,6 +24,11 @@ init_cq (
 
 int
 free_cq (
+    cqueue_t * const ins
+);
+
+void
+clear_cq (
     cqueue_t * const ins
 );
 

@@ -5,7 +5,7 @@
 #include <locale.h>
 
 /* Debug Macros */
-//#define DEBUG_CQ
+#define DEBUG_CQ
 
 /* Local Types */
 typedef uint64_t header_t;
@@ -18,6 +18,7 @@ enum errors_e
     ERR_MALLOC_FAIL = -3,
     ERR_TEST_FAIL = -4,
     ERR_QUEUE_FULL = -5,
+    ERR_MISALIGNMENT = -6,
     SUCCESS = 0,
 };
 
@@ -25,7 +26,9 @@ enum errors_e
 static void queue_status();
 
 /* Local Macros */
-#define __CUTILS_QALIGN(x) (((x)+7+sizeof(header_t)) & ~7)
+#define __CUTILS_8ALIGN(x) (((x)+7) & ~7)
+#define HEADER_SIZE (__CUTILS_8ALIGN(sizeof(header_t)))
+#define __CUTILS_QALIGN(x) (__CUTILS_8ALIGN(x+HEADER_SIZE))
 #define show_status(x, y) queue_status(x, __FUNCTION__, y)
 #define error_out(x) printf("%s: " x "\n", __FUNCTION__)
 
@@ -60,27 +63,13 @@ static void queue_status(
 }
 
 /* Public Function(s) */
-void
-print_cq (
-    cqueue_t * const ins
-)
-{
-    for ( uint32_t i = 0; i < ins->capacity; ++i )
-    {
-        printf("%c", ins->queue[i]);
-        if ( !(i % 64) )
-            printf("\n");
-    }
-    printf("\n");
-}
-
 int
 init_cq (
     cqueue_t * const ins,
     const uint32_t size
 )
 {
-    uint32_t adj_size = ((size + 7) & ~7);
+    uint32_t adj_size = __CUTILS_8ALIGN(size);
 
     if ( !ins )
         return ERR_NULL_INSTANCE;
@@ -94,6 +83,7 @@ init_cq (
         return ERR_MALLOC_FAIL;
 
     ins->capacity = adj_size;
+    memset(&ins->queue[0], 0, adj_size);
 
     return SUCCESS;
 }
@@ -111,6 +101,17 @@ free_cq (
     return SUCCESS;
 }
 
+void
+clear_cq (
+    cqueue_t * const ins
+)
+{
+    ins->writer = 0;
+    ins->reader = 0;
+    ins->lsize  = 0;
+    memset(ins->queue, 0, ins->capacity);
+}
+
 uint32_t
 push_cq (
     cqueue_t * const ins,
@@ -118,8 +119,15 @@ push_cq (
     uint32_t size
 )
 {
-    uint32_t payload  = __CUTILS_QALIGN(size);
+    uint32_t payload = __CUTILS_QALIGN(size);
     uint32_t writer_new = ins->writer + payload;
+
+    #ifdef DEBUG_CQ
+    char debug0[] = "none";
+    char debug1[] = "wrap-around";
+    char debug2[] = "no-wrap-around";
+    char *debug_ptr = debug0;
+    #endif
 
     /*
      * Return if the queue would overflow
@@ -131,9 +139,6 @@ push_cq (
         return FAILURE;
     }
 
-    /* Increase "logical size" of queue */
-    ins->lsize += payload;
-
     if ( writer_new <= ins->capacity )
     {
         /*
@@ -141,34 +146,35 @@ push_cq (
          * around the buffer.
          */
         *(header_t*)&ins->queue[ins->writer] = size;
-        ins->writer += sizeof(header_t);
+        ins->writer += HEADER_SIZE;
         memcpy(&ins->queue[ins->writer], data, size);
-        ins->writer = ( writer_new == ins->capacity ) ? 
-                      ( 0 ) : ( writer_new );
+        ins->writer = ( writer_new != ins->capacity ) ? ( writer_new ) : ( 0 );
         #ifdef DEBUG_CQ
-        show_status(ins, "no-wrap");
+        debug_ptr = debug1;
         #endif
     }
     else
     {
         /*
-         * If the writer needs to wrap-around the buffer,
+         * If the payload needs to wrap-around the buffer,
          * the push operation requires 2 memcpy calls.
+         * Eq. payload = len(seg1) + len(seg2)
          */
         header_t seg1 = ins->capacity - ins->writer;
         header_t seg2 = writer_new - ins->capacity;
 
         /* Handle Segment 1 */
-        if ( seg1 > sizeof(header_t) )
+        if ( seg1 > HEADER_SIZE )
         {
             /* Segment 1 has a header and data. */
             *(header_t*)&ins->queue[ins->writer] = size;
-            ins->writer += sizeof(header_t);
-            seg1 -= sizeof(header_t);
+            ins->writer += HEADER_SIZE;
+            seg1 -= HEADER_SIZE;
             memcpy(&ins->queue[ins->writer], data, seg1);
             data += seg1;
+            ins->writer = 0;
         }
-        else if ( seg1 == sizeof(header_t) )
+        else if ( seg1 == HEADER_SIZE )
         {
             /* Segment 1 has a header */
             *(header_t*)&ins->queue[ins->writer] = size;
@@ -180,19 +186,27 @@ push_cq (
             if ( seg1 != 0 )
             {
                 error_out("queue misalignment is causing corruption");
-                return FAILURE;
+                return ERR_MISALIGNMENT;
             }
+            seg2 -= HEADER_SIZE;
             *(header_t*)&ins->queue[0] = size;
-            ins->writer = sizeof(header_t);
+            ins->writer = HEADER_SIZE;
         }
 
         /* Handle Segment 2 */
         memcpy(&ins->queue[ins->writer], data, seg2);
         ins->writer = seg2;
         #ifdef DEBUG_CQ
-        show_status(ins, "wrap-around");
+        debug_ptr = debug2;
         #endif
     }
+
+    /* Increase "logical size" of queue */
+    ins->lsize += payload;
+
+    #ifdef DEBUG_CQ
+    show_status(ins, debug_ptr);
+    #endif
 
     return SUCCESS;
 }
@@ -204,9 +218,9 @@ pop_cq (
 )
 {
     header_t size;
+    header_t payload;
     header_t seg1;
-    header_t seg2;
-    uint32_t payload;
+
     #ifdef DEBUG_CQ
     char debug0[] = "none";
     char debug1[] = "reader == capacity";
@@ -237,22 +251,23 @@ pop_cq (
     /*
      * Find entry size.
      */
+
     if ( ins->reader < ins->capacity )
     {
         seg1 = ins->capacity - ins->reader;
-        if ( seg1 > sizeof(header_t) )
+        if ( seg1 > HEADER_SIZE )
         {
             size = *(header_t*)&ins->queue[ins->reader];
             payload = __CUTILS_QALIGN(size);
             if ( (ins->reader + size) <= ins->capacity )
             {
-                memcpy(data, &ins->queue[ins->reader+sizeof(header_t)], size);
+                memcpy(data, &ins->queue[ins->reader+HEADER_SIZE], size);
                 ins->reader += payload;
             }
             else
             {
-                seg1 -= sizeof(header_t);
-                memcpy(data, &ins->queue[ins->reader+sizeof(header_t)], seg1);
+                seg1 -= HEADER_SIZE;
+                memcpy(data, &ins->queue[ins->reader+HEADER_SIZE], seg1);
                 data += seg1;
                 memcpy(data, &ins->queue[0], size-seg1);
                 ins->reader = payload-seg1;
@@ -261,12 +276,11 @@ pop_cq (
             debug_ptr = debug2;
             #endif
         }
-        else if ( seg1 == sizeof(header_t) )
+        else if ( seg1 == HEADER_SIZE )
         {
             size = *(header_t*)&ins->queue[ins->reader];
-            payload = __CUTILS_QALIGN(size);
             memcpy(data, &ins->queue[0], size);
-            ins->reader = payload;
+            ins->reader = __CUTILS_8ALIGN(size);
             #ifdef DEBUG_CQ
             debug_ptr = debug3;
             #endif
@@ -274,15 +288,14 @@ pop_cq (
         else
         {
             error_out("queue misalignment is causing corruption");
-            return FAILURE;
+            return ERR_MISALIGNMENT;
         }
     }
     else if ( ins->reader == ins->capacity )
     {
         size = *(header_t*)&ins->queue[0];
-        payload = __CUTILS_QALIGN(size);
-        memcpy(data, &ins->queue[sizeof(header_t)], size);
-        ins->reader = payload + sizeof(header_t);
+        memcpy(data, &ins->queue[HEADER_SIZE], size);
+        ins->reader = __CUTILS_8ALIGN(size);
         #ifdef DEBUG_CQ
         debug_ptr = debug1;
         #endif
@@ -299,10 +312,13 @@ pop_cq (
     #ifdef DEBUG_CQ
     show_status(ins, debug_ptr);
     #endif
+
     return size;
 }
 
 /* Undefine Local Macros*/
+#undef HEADER_SIZE
+#undef __CUTILS_8ALIGN
 #undef __CUTILS_QALIGN
 #undef show_status
 #undef error_out

@@ -4,7 +4,7 @@ AR=ar
 INC=-I. \
     -I./data_structures/header_only \
     -I./data_structures/libraries
-CFLAGS= $(INC) -Wall -L.
+CFLAGS= $(INC) -L. -g
 
 SRC_DIR=./data_structures/libraries
 OBJ_DIR=obj
@@ -30,7 +30,7 @@ build_header:
 	@echo "#endif /* BCUTILS_H */" >> bcutils.h
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
-	@$(CC) $(CFLAGS) -g -c $< -o $@
+	@$(CC) $(CFLAGS) -c $< -o $@
 
 # Rule: Remove All Build Artifacts
 clean:

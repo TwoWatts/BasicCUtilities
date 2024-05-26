@@ -16,19 +16,25 @@ int main()
     printf("Start of Program\n");
 
     cqueue_t queue;
-    if ( init_cq(&queue, 64) != 0 )
+    cqueue_t *ins = &queue;
+    if ( init_cq(ins, 64) != 0 )
     {
         printf("init_queue: failed\n");
         return EXIT_FAILURE;
     }
 
-    push_cq(&queue, data, strlen(data)); // 16
-    push_cq(&queue, data, strlen(data)); // 32
-    push_cq(&queue, data, strlen(data)); // 48
-    push_cq(&queue, data, strlen(data)); // 64
-    push_cq(&queue, data2, strlen(data2)); // 64
-    pop_cq(&queue, buf); // 48
-    push_cq(&queue, data2, strlen(data2)); // 64
+    push_cq(ins, data, strlen(data)); // 16
+    push_cq(ins, data, strlen(data)); // 32
+    push_cq(ins, data, strlen(data)); // 48
+    push_cq(ins, data, strlen(data)); // 64
+    push_cq(ins, data2, strlen(data2)); // 64
+    pop_cq(ins, buf); // 48
+    pop_cq(ins, buf); // 32
+    pop_cq(ins, buf); // 16
+    pop_cq(ins, buf); // 0
+    pop_cq(ins, buf); // 0
+    push_cq(ins, data, strlen(data)); // 16
+    pop_cq(ins, buf); // 0
 
     printf("End of Program\n");
     fflush(stdout);
