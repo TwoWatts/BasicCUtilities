@@ -270,7 +270,7 @@ pop_cq (
                 memcpy(data, &ins->queue[ins->reader+HEADER_SIZE], seg1);
                 data += seg1;
                 memcpy(data, &ins->queue[0], size-seg1);
-                ins->reader = payload-seg1;
+                ins->reader = __CUTILS_8ALIGN(payload-seg1);
             }
             #ifdef DEBUG_CQ
             debug_ptr = debug2;
