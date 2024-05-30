@@ -37,3 +37,5 @@ clean:
 	@rm -f ./run
 	@rm -rf ./obj/*
 	@rm -f ./core_*
+	@rm -f ./*.exe
+	@rm -f ./*.a

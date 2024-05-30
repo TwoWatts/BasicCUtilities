@@ -5,7 +5,7 @@
 #include <locale.h>
 
 /* Debug Macros */
-#define DEBUG_CQ
+//#define DEBUG_CQ
 
 /* Local Types */
 typedef uint64_t header_t;
@@ -26,11 +26,14 @@ enum errors_e
 static void queue_status();
 
 /* Local Macros */
-#define __CUTILS_8ALIGN(x) (((x)+7) & ~7)
-#define HEADER_SIZE (__CUTILS_8ALIGN(sizeof(header_t)))
-#define __CUTILS_QALIGN(x) (__CUTILS_8ALIGN(x+HEADER_SIZE))
+#define __CUTILS_XALIGN(x) (((x)+7) & ~7)
+#define HEADER_SIZE (__CUTILS_XALIGN(sizeof(header_t)))
+#define __CUTILS_QALIGN(x) (__CUTILS_XALIGN(x+HEADER_SIZE))
 #define show_status(x, y) queue_status(x, __FUNCTION__, y)
 #define error_out(x) printf("%s: " x "\n", __FUNCTION__)
+#define ASSUME(x) if (__builtin_expect((x), 1))
+#define DONT_ASSUME(x) if (__builtin_expect((x), 0))
+#define RECOVER else
 
 /* Private Function(s) */
 static void queue_status(
@@ -69,7 +72,7 @@ init_cq (
     const uint32_t size
 )
 {
-    uint32_t adj_size = __CUTILS_8ALIGN(size);
+    uint32_t adj_size = __CUTILS_XALIGN(size);
 
     if ( !ins )
         return ERR_NULL_INSTANCE;
@@ -119,6 +122,7 @@ push_cq (
     uint32_t size
 )
 {
+    header_t seg1, seg2;
     uint32_t payload = __CUTILS_QALIGN(size);
     uint32_t writer_new = ins->writer + payload;
 
@@ -130,6 +134,16 @@ push_cq (
     #endif
 
     /*
+     * Return if the data being pushed 
+     * is invalid.
+     */
+    DONT_ASSUME ( !data )
+    {
+        error_out("data being pushed is invalid");
+        return FAILURE;
+    }
+
+    /*
      * Return if the queue would overflow
      * after adding this entry.
      */
@@ -139,63 +153,53 @@ push_cq (
         return FAILURE;
     }
 
-    if ( writer_new <= ins->capacity )
+    ASSUME ( writer_new <= ins->capacity )
     {
         /*
          * If the payload fits without wrapping
          * around the buffer.
          */
         *(header_t*)&ins->queue[ins->writer] = size;
-        ins->writer += HEADER_SIZE;
-        memcpy(&ins->queue[ins->writer], data, size);
-        ins->writer = ( writer_new != ins->capacity ) ? ( writer_new ) : ( 0 );
+        memcpy(&ins->queue[ins->writer+HEADER_SIZE], data, size);
+        ins->writer = writer_new;
         #ifdef DEBUG_CQ
         debug_ptr = debug1;
         #endif
     }
-    else
+    RECOVER
     {
         /*
          * If the payload needs to wrap-around the buffer,
-         * the push operation requires 2 memcpy calls.
+         * the push operation typically requires 2 memcpy calls.
          * Eq. payload = len(seg1) + len(seg2)
          */
-        header_t seg1 = ins->capacity - ins->writer;
-        header_t seg2 = writer_new - ins->capacity;
+        seg1 = ins->capacity - ins->writer;
+        seg2 = writer_new - ins->capacity;
 
-        /* Handle Segment 1 */
         if ( seg1 > HEADER_SIZE )
         {
-            /* Segment 1 has a header and data. */
+            /* Segment 1 = header + data */
             *(header_t*)&ins->queue[ins->writer] = size;
-            ins->writer += HEADER_SIZE;
             seg1 -= HEADER_SIZE;
-            memcpy(&ins->queue[ins->writer], data, seg1);
-            data += seg1;
-            ins->writer = 0;
+            memcpy(&ins->queue[ins->writer+HEADER_SIZE], data, seg1);
+            memcpy(&ins->queue[0], data+seg1, seg2);
+            ins->writer = seg2;
         }
         else if ( seg1 == HEADER_SIZE )
         {
-            /* Segment 1 has a header */
+            /* Segment 1 = header */
             *(header_t*)&ins->queue[ins->writer] = size;
-            ins->writer = 0;
+            memcpy(&ins->queue[0], data, seg2-HEADER_SIZE);
+            ins->writer = seg2;
         }
         else
         {
-            /* Segment 1 has nothing. */
-            if ( seg1 != 0 )
-            {
-                error_out("queue misalignment is causing corruption");
-                return ERR_MISALIGNMENT;
-            }
-            seg2 -= HEADER_SIZE;
+            /* Segment 1 = nothing */
             *(header_t*)&ins->queue[0] = size;
-            ins->writer = HEADER_SIZE;
+            memcpy(&ins->queue[ins->writer+HEADER_SIZE], data, seg2-HEADER_SIZE);
+            ins->writer = seg2;
         }
 
-        /* Handle Segment 2 */
-        memcpy(&ins->queue[ins->writer], data, seg2);
-        ins->writer = seg2;
         #ifdef DEBUG_CQ
         debug_ptr = debug2;
         #endif
@@ -203,6 +207,10 @@ push_cq (
 
     /* Increase "logical size" of queue */
     ins->lsize += payload;
+
+    /* Wrap writer around buffer. */
+    DONT_ASSUME ( ins->writer >= ins->capacity )
+        ins->writer = 0;
 
     #ifdef DEBUG_CQ
     show_status(ins, debug_ptr);
@@ -219,95 +227,85 @@ pop_cq (
 {
     header_t size;
     header_t payload;
-    header_t seg1;
+    header_t seg1, seg2;
+    header_t reader_new;
 
     #ifdef DEBUG_CQ
     char debug0[] = "none";
-    char debug1[] = "reader == capacity";
-    char debug2[] = "seg1 >";
-    char debug3[] = "seg1 ==";
+    char debug1[] = "reader <= capacity";
+    char debug2[] = "reader > capacity";
     char *debug_ptr = debug0;
     #endif
-
-    /*
-     * Return if the queue is empty.
-     */
-    if ( ins->lsize == 0 )
-    {
-        error_out("queue is empty");
-        return SUCCESS;
-    }
 
     /*
      * Return if the data destination
      * can't hold the payload.
      */
-    if ( !data )
+    DONT_ASSUME ( !data )
     {
         error_out("invalid destination");
         return FAILURE;
     }
 
     /*
+     * Return if the queue is empty.
+     */
+    if ( ins->lsize <= HEADER_SIZE )
+    {
+        error_out("queue is empty");
+        return SUCCESS;
+    }
+
+    size = *(header_t*)&ins->queue[ins->reader];
+    payload = __CUTILS_QALIGN(size);
+    reader_new = (ins->reader + payload);
+
+    /*
      * Find entry size.
      */
-
-    if ( ins->reader < ins->capacity )
+    ASSUME ( reader_new <= ins->capacity )
     {
-        seg1 = ins->capacity - ins->reader;
-        if ( seg1 > HEADER_SIZE )
-        {
-            size = *(header_t*)&ins->queue[ins->reader];
-            payload = __CUTILS_QALIGN(size);
-            if ( (ins->reader + size) <= ins->capacity )
-            {
-                memcpy(data, &ins->queue[ins->reader+HEADER_SIZE], size);
-                ins->reader += payload;
-            }
-            else
-            {
-                seg1 -= HEADER_SIZE;
-                memcpy(data, &ins->queue[ins->reader+HEADER_SIZE], seg1);
-                data += seg1;
-                memcpy(data, &ins->queue[0], size-seg1);
-                ins->reader = __CUTILS_8ALIGN(payload-seg1);
-            }
-            #ifdef DEBUG_CQ
-            debug_ptr = debug2;
-            #endif
-        }
-        else if ( seg1 == HEADER_SIZE )
-        {
-            size = *(header_t*)&ins->queue[ins->reader];
-            memcpy(data, &ins->queue[0], size);
-            ins->reader = __CUTILS_8ALIGN(size);
-            #ifdef DEBUG_CQ
-            debug_ptr = debug3;
-            #endif
-        }
-        else
-        {
-            error_out("queue misalignment is causing corruption");
-            return ERR_MISALIGNMENT;
-        }
-    }
-    else if ( ins->reader == ins->capacity )
-    {
-        size = *(header_t*)&ins->queue[0];
-        memcpy(data, &ins->queue[HEADER_SIZE], size);
-        ins->reader = __CUTILS_8ALIGN(size);
+        memcpy(data, &ins->queue[ins->reader+HEADER_SIZE], size);
+        ins->reader = reader_new;
         #ifdef DEBUG_CQ
         debug_ptr = debug1;
         #endif
     }
-    else
+    RECOVER
     {
-        error_out("reader out of bounds");
-        return FAILURE;
+        seg1 = ins->capacity - ins->reader;
+        seg2 = reader_new - ins->capacity;
+        if ( seg1 > HEADER_SIZE )
+        {
+            /* Segment 1 = header + data */
+            seg1 -= HEADER_SIZE;
+            memcpy(data, &ins->queue[ins->reader+HEADER_SIZE], seg1);
+            memcpy(data+seg1, &ins->queue[0], seg2);
+            ins->reader = seg2;
+        }
+        else if ( seg1 == HEADER_SIZE )
+        {
+            /* Segment 1 = header */
+            memcpy(data, &ins->queue[0], seg2);
+            ins->reader = seg2;
+        }
+        else
+        {
+            /* Segment 1 = data */
+            memcpy(data, &ins->queue[HEADER_SIZE], seg2-HEADER_SIZE);
+            ins->reader = seg2;
+        }
+        #ifdef DEBUG_CQ
+        debug_ptr = debug2;
+        #endif
     }
 
     /* Decrease "logical size" of queue */
     ins->lsize -= payload;
+
+    /* Wrap reader around buffer. */
+    DONT_ASSUME ( ins->reader >= ins->capacity )
+        ins->reader = 0;
 
     #ifdef DEBUG_CQ
     show_status(ins, debug_ptr);
@@ -318,7 +316,10 @@ pop_cq (
 
 /* Undefine Local Macros*/
 #undef HEADER_SIZE
-#undef __CUTILS_8ALIGN
+#undef __CUTILS_XALIGN
 #undef __CUTILS_QALIGN
 #undef show_status
 #undef error_out
+#undef ASSUME
+#undef DONT_ASSUME
+#undef RECOVER
