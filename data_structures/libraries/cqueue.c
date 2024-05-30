@@ -198,9 +198,8 @@ add_cq (
         else
         {
             /* Segment 1 = nothing */
-            *(header_t*)&ins->queue[0] = size;
-            memcpy(&ins->queue[ins->writer+__CUTILS_HEADER_SIZE], data, seg2-__CUTILS_HEADER_SIZE);
-            ins->writer = seg2;
+            __CUTILS_ERROR("queue corruption detected");
+            return FAILURE;
         }
 
         #ifdef DEBUG_CQ
@@ -212,7 +211,7 @@ add_cq (
     ins->lsize += payload;
 
     /* Wrap writer around buffer. */
-    __CUTILS_DONT_ASSUME ( ins->writer >= ins->capacity )
+    __CUTILS_DONT_ASSUME ( ins->writer > (ins->capacity - __CUTILS_HEADER_SIZE - 1) )
         ins->writer = 0;
 
     #ifdef DEBUG_CQ
@@ -295,8 +294,8 @@ rem_cq (
         else
         {
             /* Segment 1 = nothing */
-            memcpy(data, &ins->queue[__CUTILS_HEADER_SIZE], seg2-__CUTILS_HEADER_SIZE);
-            ins->reader = seg2;
+            __CUTILS_ERROR("queue corruption detected");
+            return FAILURE;
         }
         #ifdef DEBUG_CQ
         debug_ptr = debug2;
@@ -307,7 +306,7 @@ rem_cq (
     ins->lsize -= payload;
 
     /* Wrap reader around buffer. */
-    __CUTILS_DONT_ASSUME ( ins->reader >= ins->capacity )
+    __CUTILS_DONT_ASSUME ( ins->reader > (ins->capacity - __CUTILS_HEADER_SIZE - 1) )
         ins->reader = 0;
 
     #ifdef DEBUG_CQ
