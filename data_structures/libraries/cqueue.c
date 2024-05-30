@@ -163,7 +163,7 @@ push_cq (
         memcpy(&ins->queue[ins->writer+HEADER_SIZE], data, size);
         ins->writer = writer_new;
         #ifdef DEBUG_CQ
-        debug_ptr = debug1;
+        debug_ptr = debug2;
         #endif
     }
     RECOVER
@@ -201,7 +201,7 @@ push_cq (
         }
 
         #ifdef DEBUG_CQ
-        debug_ptr = debug2;
+        debug_ptr = debug1;
         #endif
     }
 

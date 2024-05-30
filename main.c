@@ -33,7 +33,7 @@ int main()
     pop_cq(ins, buf); // 16
     pop_cq(ins, buf); // 0
     pop_cq(ins, buf); // 0
-    push_cq(ins, data, strlen(data)); // 16
+    push_cq(ins, data2, strlen(data2)); // 16
     pop_cq(ins, buf); // 0
 
     printf("End of Program\n");
