@@ -86,7 +86,11 @@ init_cq (
 
     if ( !ins )
         return ERR_NULL_INSTANCE;
-
+    
+    if ( adj_size != __CUTILS_XALIGN(size) )
+    {
+        printf("%s: %s\n", __FUNCTION__, "buffer is misaligned so queue will run slower");
+    }
     ins->writer   = 0;
     ins->reader   = 0;
     ins->capacity = 0;
