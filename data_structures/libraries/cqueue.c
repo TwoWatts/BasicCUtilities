@@ -22,6 +22,12 @@ enum errors_e
     SUCCESS = 0,
 };
 
+enum
+{
+    FLAG_DEFAULT = 0,
+    FLAG_NOALLOC = 1,
+};
+
 /* Private Prototypes */
 static void queue_status();
 
@@ -72,10 +78,11 @@ static void queue_status(
 int
 init_cq (
     cqueue_t * const ins,
+    void *buffer,
     const uint32_t size
 )
 {
-    uint32_t adj_size = __CUTILS_XALIGN(size);
+    uint32_t adj_size = size;
 
     if ( !ins )
         return ERR_NULL_INSTANCE;
@@ -84,9 +91,19 @@ init_cq (
     ins->reader   = 0;
     ins->capacity = 0;
     ins->lsize    = 0;
+    ins->flags    = 0;
     
-    if ( !(ins->queue = malloc(adj_size)) )
-        return ERR_MALLOC_FAIL;
+    if ( !buffer )
+    {
+        if ( !(ins->queue = malloc(adj_size)) )
+            return ERR_MALLOC_FAIL;
+    }
+    else
+    {
+        printf("%s: %s\n", __FUNCTION__, "skipping memory allocation...\n\twarning: utilizing user-provided buffer");
+        ins->flags += FLAG_NOALLOC;
+        ins->queue = (uint8_t*)buffer;
+    }
 
     ins->capacity = adj_size;
     memset(&ins->queue[0], 0, adj_size);
@@ -103,7 +120,11 @@ free_cq (
     ins->reader   = 0;
     ins->capacity = 0;
     ins->lsize    = 0;
-    free(ins->queue);
+    if ( !(ins->flags & FLAG_NOALLOC) )
+    {
+        free(ins->queue);
+    }
+    ins->flags = 0;
     return SUCCESS;
 }
 

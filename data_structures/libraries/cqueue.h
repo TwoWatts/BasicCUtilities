@@ -14,11 +14,13 @@ typedef struct
     uint32_t reader;   // Queue Read Index
     uint32_t capacity; // Queue Capacity
     uint32_t lsize;    // Logical Queue Size
+    uint8_t flags;
 } cqueue_t;
 
 int
 init_cq (
     cqueue_t * const ins,
+    void *buffer,
     const uint32_t size
 );
 

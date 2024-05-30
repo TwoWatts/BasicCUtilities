@@ -12,12 +12,13 @@ int main()
     char buf[120+1];
     memset(buf, ' ', sizeof(buf));
     buf[sizeof(buf)-1] = 0;
+    char queue_data[64];
 
     printf("Start of Program\n");
 
     cqueue_t queue;
     cqueue_t *ins = &queue;
-    if ( init_cq(ins, 64) != 0 )
+    if ( init_cq(ins, &queue_data[0], 64) != 0 )
     {
         printf("init_queue: failed\n");
         return EXIT_FAILURE;
@@ -36,6 +37,7 @@ int main()
     add_cq(ins, data2, strlen(data2)); // 16
     rem_cq(ins, buf); // 0
 
+    free_cq(ins);
     printf("End of Program\n");
     fflush(stdout);
 
