@@ -23,18 +23,18 @@ int main()
         return EXIT_FAILURE;
     }
 
-    push_cq(ins, data, strlen(data)); // 16
-    push_cq(ins, data, strlen(data)); // 32
-    push_cq(ins, data, strlen(data)); // 48
-    push_cq(ins, data, strlen(data)); // 64
-    push_cq(ins, data2, strlen(data2)); // 64
-    pop_cq(ins, buf); // 48
-    pop_cq(ins, buf); // 32
-    pop_cq(ins, buf); // 16
-    pop_cq(ins, buf); // 0
-    pop_cq(ins, buf); // 0
-    push_cq(ins, data2, strlen(data2)); // 16
-    pop_cq(ins, buf); // 0
+    add_cq(ins, data, strlen(data)); // 16
+    add_cq(ins, data, strlen(data)); // 32
+    add_cq(ins, data, strlen(data)); // 48
+    add_cq(ins, data, strlen(data)); // 64
+    add_cq(ins, data2, strlen(data2)); // 64
+    rem_cq(ins, buf); // 48
+    rem_cq(ins, buf); // 32
+    rem_cq(ins, buf); // 16
+    rem_cq(ins, buf); // 0
+    rem_cq(ins, buf); // 0
+    add_cq(ins, data2, strlen(data2)); // 16
+    rem_cq(ins, buf); // 0
 
     printf("End of Program\n");
     fflush(stdout);

@@ -26,14 +26,17 @@ enum errors_e
 static void queue_status();
 
 /* Local Macros */
-#define __CUTILS_XALIGN(x) (((x)+7) & ~7)
-#define HEADER_SIZE (__CUTILS_XALIGN(sizeof(header_t)))
-#define __CUTILS_QALIGN(x) (__CUTILS_XALIGN(x+HEADER_SIZE))
-#define show_status(x, y) queue_status(x, __FUNCTION__, y)
-#define error_out(x) printf("%s: " x "\n", __FUNCTION__)
-#define ASSUME(x) if (__builtin_expect((x), 1))
-#define DONT_ASSUME(x) if (__builtin_expect((x), 0))
-#define RECOVER else
+#ifndef __CUTILS_ALIGNMENT
+    #define __CUTILS_ALIGNMENT 8
+#endif
+#define __CUTILS_XALIGN(x) (((x)+(__CUTILS_ALIGNMENT-1)) & ~(__CUTILS_ALIGNMENT-1))
+#define __CUTILS_HEADER_SIZE (__CUTILS_XALIGN(sizeof(header_t)))
+#define __CUTILS_QALIGN(x) (__CUTILS_XALIGN(x+__CUTILS_HEADER_SIZE))
+#define __CUTILS_STATUS(x, y) queue_status(x, __FUNCTION__, y)
+#define __CUTILS_ERROR(x) printf("%s: " x "\n", __FUNCTION__)
+#define __CUTILS_ASSUME(x) if (__builtin_expect((x), 1))
+#define __CUTILS_DONT_ASSUME(x) if (__builtin_expect((x), 0))
+#define __CUTILS_RECOVER else
 
 /* Private Function(s) */
 static void queue_status(
@@ -116,7 +119,7 @@ clear_cq (
 }
 
 uint32_t
-push_cq (
+add_cq (
     cqueue_t * const ins,
     const uint8_t * data,
     uint32_t size
@@ -137,9 +140,9 @@ push_cq (
      * Return if the data being pushed 
      * is invalid.
      */
-    DONT_ASSUME ( !data )
+    __CUTILS_DONT_ASSUME ( !data )
     {
-        error_out("data being pushed is invalid");
+        __CUTILS_ERROR("data being pushed is invalid");
         return FAILURE;
     }
 
@@ -149,24 +152,24 @@ push_cq (
      */
     if ( (ins->lsize + payload) > ins->capacity )
     {
-        error_out("queue is full... dropping data");
+        __CUTILS_ERROR("queue is full... dropping data");
         return FAILURE;
     }
 
-    ASSUME ( writer_new <= ins->capacity )
+    __CUTILS_ASSUME ( writer_new <= ins->capacity )
     {
         /*
          * If the payload fits without wrapping
          * around the buffer.
          */
         *(header_t*)&ins->queue[ins->writer] = size;
-        memcpy(&ins->queue[ins->writer+HEADER_SIZE], data, size);
+        memcpy(&ins->queue[ins->writer+__CUTILS_HEADER_SIZE], data, size);
         ins->writer = writer_new;
         #ifdef DEBUG_CQ
         debug_ptr = debug2;
         #endif
     }
-    RECOVER
+    __CUTILS_RECOVER
     {
         /*
          * If the payload needs to wrap-around the buffer,
@@ -176,27 +179,27 @@ push_cq (
         seg1 = ins->capacity - ins->writer;
         seg2 = writer_new - ins->capacity;
 
-        if ( seg1 > HEADER_SIZE )
+        if ( seg1 > __CUTILS_HEADER_SIZE )
         {
             /* Segment 1 = header + data */
             *(header_t*)&ins->queue[ins->writer] = size;
-            seg1 -= HEADER_SIZE;
-            memcpy(&ins->queue[ins->writer+HEADER_SIZE], data, seg1);
+            seg1 -= __CUTILS_HEADER_SIZE;
+            memcpy(&ins->queue[ins->writer+__CUTILS_HEADER_SIZE], data, seg1);
             memcpy(&ins->queue[0], data+seg1, seg2);
             ins->writer = seg2;
         }
-        else if ( seg1 == HEADER_SIZE )
+        else if ( seg1 == __CUTILS_HEADER_SIZE )
         {
             /* Segment 1 = header */
             *(header_t*)&ins->queue[ins->writer] = size;
-            memcpy(&ins->queue[0], data, seg2-HEADER_SIZE);
+            memcpy(&ins->queue[0], data, seg2-__CUTILS_HEADER_SIZE);
             ins->writer = seg2;
         }
         else
         {
             /* Segment 1 = nothing */
             *(header_t*)&ins->queue[0] = size;
-            memcpy(&ins->queue[ins->writer+HEADER_SIZE], data, seg2-HEADER_SIZE);
+            memcpy(&ins->queue[ins->writer+__CUTILS_HEADER_SIZE], data, seg2-__CUTILS_HEADER_SIZE);
             ins->writer = seg2;
         }
 
@@ -209,18 +212,18 @@ push_cq (
     ins->lsize += payload;
 
     /* Wrap writer around buffer. */
-    DONT_ASSUME ( ins->writer >= ins->capacity )
+    __CUTILS_DONT_ASSUME ( ins->writer >= ins->capacity )
         ins->writer = 0;
 
     #ifdef DEBUG_CQ
-    show_status(ins, debug_ptr);
+    __CUTILS_STATUS(ins, debug_ptr);
     #endif
 
     return SUCCESS;
 }
 
 uint32_t
-pop_cq (
+rem_cq (
     cqueue_t * const ins,
     uint8_t * data
 )
@@ -241,18 +244,18 @@ pop_cq (
      * Return if the data destination
      * can't hold the payload.
      */
-    DONT_ASSUME ( !data )
+    __CUTILS_DONT_ASSUME ( !data )
     {
-        error_out("invalid destination");
+        __CUTILS_ERROR("invalid destination");
         return FAILURE;
     }
 
     /*
      * Return if the queue is empty.
      */
-    if ( ins->lsize <= HEADER_SIZE )
+    if ( ins->lsize <= __CUTILS_HEADER_SIZE )
     {
-        error_out("queue is empty");
+        __CUTILS_ERROR("queue is empty");
         return SUCCESS;
     }
 
@@ -263,27 +266,27 @@ pop_cq (
     /*
      * Find entry size.
      */
-    ASSUME ( reader_new <= ins->capacity )
+    __CUTILS_ASSUME ( reader_new <= ins->capacity )
     {
-        memcpy(data, &ins->queue[ins->reader+HEADER_SIZE], size);
+        memcpy(data, &ins->queue[ins->reader+__CUTILS_HEADER_SIZE], size);
         ins->reader = reader_new;
         #ifdef DEBUG_CQ
         debug_ptr = debug1;
         #endif
     }
-    RECOVER
+    __CUTILS_RECOVER
     {
         seg1 = ins->capacity - ins->reader;
         seg2 = reader_new - ins->capacity;
-        if ( seg1 > HEADER_SIZE )
+        if ( seg1 > __CUTILS_HEADER_SIZE )
         {
             /* Segment 1 = header + data */
-            seg1 -= HEADER_SIZE;
-            memcpy(data, &ins->queue[ins->reader+HEADER_SIZE], seg1);
+            seg1 -= __CUTILS_HEADER_SIZE;
+            memcpy(data, &ins->queue[ins->reader+__CUTILS_HEADER_SIZE], seg1);
             memcpy(data+seg1, &ins->queue[0], seg2);
             ins->reader = seg2;
         }
-        else if ( seg1 == HEADER_SIZE )
+        else if ( seg1 == __CUTILS_HEADER_SIZE )
         {
             /* Segment 1 = header */
             memcpy(data, &ins->queue[0], seg2);
@@ -292,7 +295,7 @@ pop_cq (
         else
         {
             /* Segment 1 = data */
-            memcpy(data, &ins->queue[HEADER_SIZE], seg2-HEADER_SIZE);
+            memcpy(data, &ins->queue[__CUTILS_HEADER_SIZE], seg2-__CUTILS_HEADER_SIZE);
             ins->reader = seg2;
         }
         #ifdef DEBUG_CQ
@@ -304,22 +307,23 @@ pop_cq (
     ins->lsize -= payload;
 
     /* Wrap reader around buffer. */
-    DONT_ASSUME ( ins->reader >= ins->capacity )
+    __CUTILS_DONT_ASSUME ( ins->reader >= ins->capacity )
         ins->reader = 0;
 
     #ifdef DEBUG_CQ
-    show_status(ins, debug_ptr);
+    __CUTILS_STATUS(ins, debug_ptr);
     #endif
 
     return size;
 }
 
 /* Undefine Local Macros*/
-#undef HEADER_SIZE
+#undef __CUTILS_ALIGNMENT
+#undef __CUTILS_HEADER_SIZE
 #undef __CUTILS_XALIGN
 #undef __CUTILS_QALIGN
-#undef show_status
-#undef error_out
-#undef ASSUME
-#undef DONT_ASSUME
-#undef RECOVER
+#undef __CUTILS_STATUS
+#undef __CUTILS_ERROR
+#undef __CUTILS_ASSUME
+#undef __CUTILS_DONT_ASSUME
+#undef __CUTILS_RECOVER

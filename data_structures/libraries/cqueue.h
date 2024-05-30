@@ -33,14 +33,14 @@ clear_cq (
 );
 
 uint32_t
-push_cq (
+add_cq (
     cqueue_t * const ins,
     const uint8_t * data,
     uint32_t size
 );
 
 uint32_t
-pop_cq (
+rem_cq (
     cqueue_t * const ins,
     uint8_t * data
 );
