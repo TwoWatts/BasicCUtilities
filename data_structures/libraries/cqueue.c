@@ -294,7 +294,7 @@ rem_cq (
         }
         else
         {
-            /* Segment 1 = data */
+            /* Segment 1 = nothing */
             memcpy(data, &ins->queue[__CUTILS_HEADER_SIZE], seg2-__CUTILS_HEADER_SIZE);
             ins->reader = seg2;
         }
