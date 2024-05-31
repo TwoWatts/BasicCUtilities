@@ -18,31 +18,31 @@ typedef struct
 } cqueue_t;
 
 int
-init_cq (
+queue_init (
     cqueue_t * const ins,
     void *buffer,
     const uint32_t size
 );
 
 int
-free_cq (
+queue_free (
     cqueue_t * const ins
 );
 
 void
-clear_cq (
+queue_clear (
     cqueue_t * const ins
 );
 
 uint32_t
-add_cq (
+queue_add (
     cqueue_t * const ins,
     const uint8_t * data,
     uint32_t size
 );
 
 uint32_t
-rem_cq (
+queue_rem (
     cqueue_t * const ins,
     uint8_t * data
 );
