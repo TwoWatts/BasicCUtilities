@@ -36,6 +36,7 @@ static void queue_status();
     #define __CUTILS_ALIGNMENT 8
 #endif
 #define __CUTILS_XALIGN(x) (((x)+(__CUTILS_ALIGNMENT-1)) & ~(__CUTILS_ALIGNMENT-1))
+#define __CUTILS_YALIGN(x) ((x) & ~(__CUTILS_ALIGNMENT-1))
 #define __CUTILS_HEADER_SIZE (__CUTILS_XALIGN(sizeof(header_t)))
 #define __CUTILS_QALIGN(x) (__CUTILS_XALIGN(x+__CUTILS_HEADER_SIZE))
 #define __CUTILS_STATUS(x, y) queue_status(x, __FUNCTION__, y)
@@ -89,7 +90,12 @@ init_cq (
     
     if ( adj_size != __CUTILS_XALIGN(size) )
     {
-        printf("%s: %s\n", __FUNCTION__, "buffer is misaligned so queue will run slower");
+        adj_size = __CUTILS_YALIGN(size);
+        printf("%s: %s %d\n", __FUNCTION__, 
+        "buffer is misaligned, so queue will run slower\n"
+        "\tand effective buffer size reduced to ",
+        adj_size
+        );
     }
     ins->writer   = 0;
     ins->reader   = 0;
@@ -104,7 +110,9 @@ init_cq (
     }
     else
     {
-        printf("%s: %s\n", __FUNCTION__, "skipping memory allocation...\n\twarning: utilizing user-provided buffer");
+        printf("%s: %s\n", __FUNCTION__,
+        "skipping memory allocation...\n\twarning: utilizing user-provided buffer"
+        );
         ins->flags += FLAG_NOALLOC;
         ins->queue = (uint8_t*)buffer;
     }
@@ -236,7 +244,7 @@ add_cq (
     ins->lsize += payload;
 
     /* Wrap writer around buffer. */
-    __CUTILS_DONT_ASSUME ( ins->writer > (ins->capacity - __CUTILS_HEADER_SIZE - 1) )
+    __CUTILS_DONT_ASSUME ( ins->writer > (ins->capacity - __CUTILS_HEADER_SIZE) )
         ins->writer = 0;
 
     #ifdef DEBUG_CQ
@@ -331,7 +339,7 @@ rem_cq (
     ins->lsize -= payload;
 
     /* Wrap reader around buffer. */
-    __CUTILS_DONT_ASSUME ( ins->reader > (ins->capacity - __CUTILS_HEADER_SIZE - 1) )
+    __CUTILS_DONT_ASSUME ( ins->reader > (ins->capacity - __CUTILS_HEADER_SIZE) )
         ins->reader = 0;
 
     #ifdef DEBUG_CQ
@@ -345,6 +353,7 @@ rem_cq (
 #undef __CUTILS_ALIGNMENT
 #undef __CUTILS_HEADER_SIZE
 #undef __CUTILS_XALIGN
+#undef __CUTILS_YALIGN
 #undef __CUTILS_QALIGN
 #undef __CUTILS_STATUS
 #undef __CUTILS_ERROR
